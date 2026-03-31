@@ -35,6 +35,7 @@ Edit root `.env` in this project:
 - `GEMINI_API_KEY=your_real_key`
 - `PORT=8080`
 - `GEMINI_MODEL=gemini-1.5-flash`
+- `GEMINI_EMBEDDING_MODEL=gemini-embedding-001`
 - `LANGGRAPH_API_URL=http://localhost:8090` (optional, only if using LangGraph service)
 
 ### 1) Configure environment
@@ -43,6 +44,7 @@ Set in `.env`:
 - `GEMINI_API_KEY=your_key_here`
 - `PORT=8080`
 - `GEMINI_MODEL=gemini-1.5-flash` (or `gemini-1.5-pro`)
+- `GEMINI_EMBEDDING_MODEL=gemini-embedding-001`
 - `LANGGRAPH_API_URL=` (optional; when set, backend calls a real LangGraph service at `POST {LANGGRAPH_API_URL}/run`)
 
 ### 2) Run backend
