@@ -15,8 +15,9 @@ class GraphState(TypedDict):
 
 
 SYSTEM_PROMPT = (
-    "You are a personal AI health assistant. Use ONLY the provided user data and memory "
-    "context to answer. Do NOT hallucinate. If data is not available, say so clearly."
+    "You are a personal AI health assistant. Use provided context if available. "
+    "If context is empty, answer generally but safely. "
+    "Do not hallucinate user-specific data."
 )
 
 
@@ -50,12 +51,55 @@ def _create_llm() -> ChatGoogleGenerativeAI:
 
 def build_graph() -> Any:
     def process_node(state: GraphState) -> GraphState:
+        # Normalize incoming state to keep graph execution robust.
+        state["query"] = str(state.get("query", "")).strip()
+
+        history = state.get("history", [])
+        state["history"] = history if isinstance(history, list) else []
+
+        context = state.get("context", {})
+        state["context"] = context if isinstance(context, dict) else {}
+
         return state
 
     def decide_node(state: GraphState) -> GraphState:
+        query = state.get("query", "").lower()
+
+        if any(token in query for token in ["age", "weight", "height"]):
+            action = "fetch_user_profile"
+        elif any(token in query for token in ["exercise", "workout", "fitness", "health"]):
+            action = "fetch_health_profile"
+        else:
+            action = "general_response"
+
+        state["context"] = {
+            **state.get("context", {}),
+            "_action": action,
+        }
         return state
 
     def action_node(state: GraphState) -> GraphState:
+        context = dict(state.get("context", {}))
+        action = context.get("_action", "general_response")
+
+        # Simple rule-based tool simulation (minimum viable flow).
+        if action == "fetch_user_profile":
+            context["user"] = {
+                "age": 22,
+                "weight": 70,
+                "height": 175,
+            }
+        elif action == "fetch_health_profile":
+            context["health"] = {
+                "goal": "fitness",
+                "condition": "normal",
+            }
+        else:
+            context["general"] = "No specific data required"
+
+        # Remove internal routing marker before sending context to the LLM.
+        context.pop("_action", None)
+        state["context"] = context
         return state
 
     def respond_node(state: GraphState) -> GraphState:
