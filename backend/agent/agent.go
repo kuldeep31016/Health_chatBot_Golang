@@ -131,9 +131,12 @@ func (a *Agent) runViaLangGraph(query string, history []ChatMessage) (string, er
 		a.HTTPClient = &http.Client{Timeout: 40 * time.Second}
 	}
 
+	context := a.buildLangGraphContext(query)
+
 	reqBody := map[string]interface{}{
 		"query":   query,
 		"history": history,
+		"context": context,
 	}
 
 	payload, err := json.Marshal(reqBody)
@@ -179,6 +182,29 @@ func (a *Agent) runViaLangGraph(query string, history []ChatMessage) (string, er
 
 	a.storeMemoryAsync(query, output)
 	return output, nil
+}
+
+func (a *Agent) buildLangGraphContext(query string) map[string]interface{} {
+	ctx := map[string]interface{}{}
+
+	if profile, err := tools.GetUserProfile(); err == nil && len(profile) > 0 {
+		ctx["user"] = profile
+	}
+
+	if healthData := tools.GetHealthData(query); len(healthData) > 0 {
+		ctx["health"] = healthData
+	}
+
+	if a.Embedder != nil && a.Memory != nil {
+		if vec, err := a.Embedder.EmbedText(query); err == nil {
+			items := a.Memory.RetrieveRelevantMemory(vec, 3)
+			if len(items) > 0 {
+				ctx["memory"] = map[string]interface{}{"items": items}
+			}
+		}
+	}
+
+	return ctx
 }
 
 func classifyQuery(query string) string {
