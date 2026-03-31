@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"health-assistant/backend/jobs"
@@ -13,12 +14,18 @@ import (
 
 type EmbeddingClient struct {
 	APIKey     string
+	Model      string
 	HTTPClient *http.Client
 }
 
-func NewEmbeddingClient(apiKey string) *EmbeddingClient {
+func NewEmbeddingClient(apiKey, model string) *EmbeddingClient {
+	if strings.TrimSpace(model) == "" {
+		model = "gemini-embedding-001"
+	}
+
 	return &EmbeddingClient{
 		APIKey:     apiKey,
+		Model:      model,
 		HTTPClient: &http.Client{Timeout: 25 * time.Second},
 	}
 }
@@ -30,8 +37,13 @@ func (c *EmbeddingClient) EmbedText(text string) ([]float64, error) {
 
 	var vector []float64
 	err := jobs.WithRetry(jobs.RetryConfig{MaxAttempts: 3, Delay: 2 * time.Second}, func() error {
+		modelPath := c.Model
+		if !strings.Contains(modelPath, "/") {
+			modelPath = "models/" + modelPath
+		}
+
 		body := map[string]interface{}{
-			"model": "models/text-embedding-004",
+			"model": modelPath,
 			"content": map[string]interface{}{
 				"parts": []map[string]string{{"text": text}},
 			},
@@ -42,7 +54,7 @@ func (c *EmbeddingClient) EmbedText(text string) ([]float64, error) {
 			return err
 		}
 
-		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=%s", c.APIKey)
+		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/%s:embedContent?key=%s", modelPath, c.APIKey)
 		req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(payload))
 		if err != nil {
 			return err
