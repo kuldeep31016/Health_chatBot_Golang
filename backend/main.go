@@ -33,7 +33,7 @@ func main() {
 
 	store := memory.NewStore()
 	memoryTool := tools.NewMemoryTool(store)
-	embedder := memory.NewEmbeddingClient(apiKey)
+	embedder := memory.NewEmbeddingClient(apiKey, os.Getenv("GEMINI_EMBEDDING_MODEL"))
 	geminiClient := llm.NewGeminiClient(apiKey, os.Getenv("GEMINI_MODEL"))
 
 	workerPool := jobs.NewWorkerPool(4)
