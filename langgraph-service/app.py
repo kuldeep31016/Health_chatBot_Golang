@@ -15,9 +15,12 @@ class GraphState(TypedDict):
 
 
 SYSTEM_PROMPT = (
-    "You are a personal AI health assistant. Use provided context if available. "
-    "If context is empty, answer generally but safely. "
-    "Do not hallucinate user-specific data."
+    "You are a personal AI health assistant.\n"
+    "You are given structured user data in 'Context'.\n"
+    "You MUST treat this context as the user's real data.\n"
+    "Always answer using this context when relevant.\n"
+    "Never say you don't have access to user data.\n"
+    "Do not hallucinate. If context is missing, say clearly.\n"
 )
 
 
@@ -81,20 +84,23 @@ def build_graph() -> Any:
     def action_node(state: GraphState) -> GraphState:
         context = dict(state.get("context", {}))
         action = context.get("_action", "general_response")
+        has_user_context = isinstance(context.get("user"), dict) and len(context.get("user", {})) > 0
+        has_health_context = isinstance(context.get("health"), dict) and len(context.get("health", {})) > 0
 
-        # Simple rule-based tool simulation (minimum viable flow).
-        if action == "fetch_user_profile":
+        # Prefer trusted context provided by the backend. Only use fallback simulation
+        # when required context is missing.
+        if action == "fetch_user_profile" and not has_user_context:
             context["user"] = {
                 "age": 22,
                 "weight": 70,
                 "height": 175,
             }
-        elif action == "fetch_health_profile":
+        elif action == "fetch_health_profile" and not has_health_context:
             context["health"] = {
                 "goal": "fitness",
                 "condition": "normal",
             }
-        else:
+        elif action == "general_response" and not context:
             context["general"] = "No specific data required"
 
         # Remove internal routing marker before sending context to the LLM.
