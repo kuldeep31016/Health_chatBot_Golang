@@ -1,0 +1,54 @@
+{
+  "name": "Alex Johnson",
+  "age": 32,
+  "height_cm": 178,
+  "weight_kg": 74,
+  "hair_color": "Brown",
+  "eye_color": "Hazel",
+  "gender": "Male",
+  "blood_group": "O+",
+  "goals": [
+    "Improve endurance",
+    "Maintain healthy glucose",
+    "Reduce stress"
+  ],
+  "allergies": [
+    "Peanuts",
+    "Shellfish"
+  ],
+  "diet_preferences": {
+    "type": "Mediterranean",
+    "hydration_goal_liters": 2.8
+  },
+  "cardiovascular_matrix": {
+    "resting_heart_rate_bpm": 62,
+    "hrv_ms": 42,
+    "blood_pressure": "118/76"
+  },
+  "metabolic": {
+    "fasting_glucose_mg_dl": 88,
+    "insulin_sensitivity": "normal"
+  },
+  "biomarkers": {
+    "vitamin_d_ng_ml": 29,
+    "hemoglobin_g_dl": 14.1
+  },
+  "fitness_milestones": {
+    "last_5k_pace": "4:33/km",
+    "weekly_steps_avg": 8400
+  },
+  "workout_preferences": {
+    "favorite": ["interval running", "HIIT", "cycling"],
+    "preferred_days": ["Mon", "Wed", "Fri", "Sat"]
+  },
+  "scheduled_appointments": [
+    {
+      "date": "2026-04-10",
+      "type": "Annual physical"
+    },
+    {
+      "date": "2026-04-16",
+      "type": "Nutrition follow-up"
+    }
+  ]
+}
