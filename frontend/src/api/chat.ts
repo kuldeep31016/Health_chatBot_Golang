@@ -84,7 +84,7 @@ export async function sendMessage(
     } catch (error) {
       lastError = error;
       onStatusChange?.('reconnecting');
-      await wait(1500);
+      await wait(2000);
     }
   }
 
