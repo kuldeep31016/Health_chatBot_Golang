@@ -33,7 +33,7 @@ func (c *GeminiClient) GenerateResponse(profile, healthData, memoryContext map[s
 		return "", fmt.Errorf("missing GEMINI_API_KEY")
 	}
 
-	systemPrompt := "You are a personal AI health assistant. Use ONLY the provided user data and memory context to answer. Do NOT hallucinate. If data is not available, say so clearly."
+	systemPrompt := "You are a personal AI health assistant. Use ONLY the provided user data and memory context to answer. Do NOT hallucinate. If data is not available, say so clearly. Use plain simple text only. Do NOT use markdown symbols like *, **, #, -, or backticks. Do NOT use bullet points. Keep the response clean, readable, and professional."
 
 	payloadContext := map[string]interface{}{
 		"user_profile":    profile,
