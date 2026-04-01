@@ -7,6 +7,8 @@ This project is a full-stack AI Health Assistant with:
 - **Frontend (React + TypeScript)**: chat UI with connection and reconnecting status
 - **LLM/Embeddings**: Google Gemini APIs
 - **Grounding strategy**: responses are built only from selective user profile and memory context
+- **LangGraph workflow**: explicit `process -> tasks -> action -> success/fail` with recursive task execution
+- **Execution metadata**: LangGraph returns executed task trace, source links (when web search runs), and latency
 
 ## Folder structure
 
@@ -33,6 +35,7 @@ Follow these in order.
 Edit root `.env` in this project:
 
 - `GEMINI_API_KEY=your_real_key`
+- `SERPER_API_KEY=your_serper_key` (required for web search tool)
 - `PORT=8080`
 - `GEMINI_MODEL=gemini-1.5-flash`
 - `GEMINI_EMBEDDING_MODEL=gemini-embedding-001`
@@ -42,6 +45,7 @@ Edit root `.env` in this project:
 
 Set in `.env`:
 - `GEMINI_API_KEY=your_key_here`
+- `SERPER_API_KEY=your_serper_key_here` (needed for web search)
 - `PORT=8080`
 - `GEMINI_MODEL=gemini-1.5-flash` (or `gemini-1.5-pro`)
 - `GEMINI_EMBEDDING_MODEL=gemini-embedding-001`
