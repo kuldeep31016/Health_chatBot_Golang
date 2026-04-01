@@ -13,18 +13,46 @@ type Props = {
   onConnectionStateChange: (state: ConnectionState) => void;
 };
 
+const CHAT_HISTORY_KEY = 'health_assistant_chat_history';
+const SESSION_ID_KEY = 'health_assistant_session_id';
+
+const getWelcomeMessage = (): Message => ({
+  role: 'assistant',
+  content: 'Hi! I\'m your AI Health Assistant. Tell me how you\'re feeling, and I\'ll help using your profile data.',
+  timestamp: new Date().toLocaleTimeString()
+});
+
 export default function ChatWindow({ onConnectionStateChange }: Props) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: 'assistant',
-      content: 'Hi! I\'m your AI Health Assistant. Tell me how you\'re feeling, and I\'ll help using your profile data.',
-      timestamp: new Date().toLocaleTimeString()
+  const [messages, setMessages] = useState<Message[]>(() => {
+    try {
+      const raw = localStorage.getItem(CHAT_HISTORY_KEY);
+      if (!raw) {
+        return [getWelcomeMessage()];
+      }
+
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        return [getWelcomeMessage()];
+      }
+
+      return parsed as Message[];
+    } catch {
+      return [getWelcomeMessage()];
     }
-  ]);
+  });
   const [loading, setLoading] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
 
-  const sessionId = useMemo(() => 'session-' + Math.random().toString(36).slice(2, 10), []);
+  const sessionId = useMemo(() => {
+    const existing = localStorage.getItem(SESSION_ID_KEY);
+    if (existing) {
+      return existing;
+    }
+
+    const generated = 'session-' + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem(SESSION_ID_KEY, generated);
+    return generated;
+  }, []);
 
   const scrollToBottom = () => {
     requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }));
@@ -33,6 +61,10 @@ export default function ChatWindow({ onConnectionStateChange }: Props) {
   useEffect(() => {
     scrollToBottom();
   }, [messages, loading]);
+
+  useEffect(() => {
+    localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(messages));
+  }, [messages]);
 
   const onSend = async (value: string) => {
     const now = new Date().toLocaleTimeString();
