@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -19,31 +20,38 @@ import (
 const fallbackResponse = "I'm having trouble right now. Please try again in a moment."
 
 type Agent struct {
-	Gemini    *llm.GeminiClient
-	Embedder  *memory.EmbeddingClient
-	Memory    *tools.MemoryTool
-	Worker    *jobs.WorkerPool
-	MaxRetries int
+	Gemini       *llm.GeminiClient
+	Embedder     *memory.EmbeddingClient
+	Memory       *tools.MemoryTool
+	Worker       *jobs.WorkerPool
+	MaxRetries   int
 	LangGraphURL string
 	HTTPClient   *http.Client
 }
 
 func NewAgent(g *llm.GeminiClient, e *memory.EmbeddingClient, mem *tools.MemoryTool, worker *jobs.WorkerPool) *Agent {
 	return &Agent{
-		Gemini:    g,
-		Embedder:  e,
-		Memory:    mem,
-		Worker:    worker,
-		MaxRetries: 3,
+		Gemini:       g,
+		Embedder:     e,
+		Memory:       mem,
+		Worker:       worker,
+		MaxRetries:   3,
 		LangGraphURL: strings.TrimSpace(os.Getenv("LANGGRAPH_API_URL")),
 		HTTPClient:   &http.Client{Timeout: 40 * time.Second},
 	}
 }
 
 func (a *Agent) Run(query string, history []ChatMessage) string {
+	if response, ok := tools.TryAnswerProfileQuestion(query); ok {
+		a.storeMemoryAsync(query, response)
+		return response
+	}
+
 	if strings.TrimSpace(a.LangGraphURL) != "" {
 		if response, err := a.runViaLangGraph(query, history); err == nil && response != "" {
 			return response
+		} else if err != nil {
+			log.Printf("agent: langgraph call failed, falling back to local pipeline: %v", err)
 		}
 	}
 
@@ -81,6 +89,7 @@ func (a *Agent) Run(query string, history []ChatMessage) string {
 			err := a.runToolWithWorker(ctx)
 			if err != nil {
 				lastErr = err
+				log.Printf("agent: tool execution failed (%s): %v", ctx.ToolToUse, err)
 				ctx.CurrentState = Transition(StateAction, false, ctx.RetryCount, ctx.MaxRetries)
 				continue
 			}
@@ -109,7 +118,14 @@ func (a *Agent) Run(query string, history []ChatMessage) string {
 			resp, err := a.generateWithWorker(ctx)
 			if err != nil {
 				lastErr = err
-				ctx.CurrentState = StateRetry
+				log.Printf("agent: response generation failed: %v", err)
+				if ctx.RetryCount < ctx.MaxRetries {
+					ctx.RetryCount++
+					time.Sleep(2 * time.Second)
+					ctx.CurrentState = StateSuccess
+				} else {
+					ctx.CurrentState = StateFail
+				}
 				continue
 			}
 			ctx.FinalResponse = resp
@@ -117,7 +133,11 @@ func (a *Agent) Run(query string, history []ChatMessage) string {
 			return ctx.FinalResponse
 
 		case StateFail:
-			_ = lastErr
+			if lastErr != nil {
+				log.Printf("agent: returning fallback after retries exhausted: %v", lastErr)
+			} else {
+				log.Printf("agent: returning fallback after retries exhausted")
+			}
 			return fallbackResponse
 
 		default:
@@ -245,69 +265,43 @@ func decideTools(classification, query string, data map[string]interface{}) []st
 }
 
 func (a *Agent) runToolWithWorker(ctx *AgentContext) error {
-	type result struct{ err error }
-	ch := make(chan result, 1)
-
-	a.Worker.Submit(jobs.Job{
-		ID: "tool-" + ctx.ToolToUse,
-		Operation: func() error {
-			switch ctx.ToolToUse {
-			case "get_user_profile":
-				profile, err := tools.GetUserProfile()
-				if err != nil {
-					return err
-				}
-				ctx.RetrievedData["profile"] = profile
-			case "get_health_data":
-				ctx.RetrievedData["health"] = tools.GetHealthData(ctx.Query)
-			case "get_memory":
-				if a.Embedder == nil || a.Memory == nil {
-					ctx.RetrievedData["memory"] = []tools.MemoryEntry{}
-					return nil
-				}
-				vec, err := a.Embedder.EmbedText(ctx.Query)
-				if err != nil {
-					return err
-				}
-				ctx.RetrievedData["memory"] = a.Memory.RetrieveRelevantMemory(vec, 3)
-			default:
-				return fmt.Errorf("unknown tool: %s", ctx.ToolToUse)
-			}
+	switch ctx.ToolToUse {
+	case "get_user_profile":
+		profile, err := tools.GetUserProfile()
+		if err != nil {
+			return err
+		}
+		ctx.RetrievedData["profile"] = profile
+	case "get_health_data":
+		ctx.RetrievedData["health"] = tools.GetHealthData(ctx.Query)
+	case "get_memory":
+		if a.Embedder == nil || a.Memory == nil {
+			ctx.RetrievedData["memory"] = []tools.MemoryEntry{}
 			return nil
-		},
-		OnSuccess: func() { ch <- result{err: nil} },
-		OnFail:    func(err error) { ch <- result{err: err} },
-	})
+		}
+		vec, err := a.Embedder.EmbedText(ctx.Query)
+		if err != nil {
+			return err
+		}
+		ctx.RetrievedData["memory"] = a.Memory.RetrieveRelevantMemory(vec, 3)
+	default:
+		return fmt.Errorf("unknown tool: %s", ctx.ToolToUse)
+	}
 
-	res := <-ch
-	return res.err
+	return nil
 }
 
 func (a *Agent) generateWithWorker(ctx *AgentContext) (string, error) {
-	type result struct {
-		response string
-		err      error
+	profile, _ := ctx.RetrievedData["profile"].(map[string]interface{})
+	healthData, _ := ctx.RetrievedData["health"].(map[string]interface{})
+	memoryContext := map[string]interface{}{"items": ctx.RetrievedData["memory"]}
+
+	resp, err := a.Gemini.GenerateResponse(profile, healthData, memoryContext, ctx.Query)
+	if err != nil {
+		return "", err
 	}
-	ch := make(chan result, 1)
 
-	a.Worker.Submit(jobs.Job{
-		ID: "gemini-generate",
-		Operation: func() error {
-			profile, _ := ctx.RetrievedData["profile"].(map[string]interface{})
-			healthData, _ := ctx.RetrievedData["health"].(map[string]interface{})
-			memoryContext := map[string]interface{}{"items": ctx.RetrievedData["memory"]}
-			resp, err := a.Gemini.GenerateResponse(profile, healthData, memoryContext, ctx.Query)
-			if err != nil {
-				return err
-			}
-			ch <- result{response: resp}
-			return nil
-		},
-		OnFail: func(err error) { ch <- result{err: err} },
-	})
-
-	res := <-ch
-	return res.response, res.err
+	return resp, nil
 }
 
 func (a *Agent) storeMemoryAsync(query, response string) {
