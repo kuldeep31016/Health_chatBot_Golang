@@ -4,6 +4,21 @@ const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function cleanAssistantText(text: string): string {
+  if (!text) return '';
+
+  return text
+    .replace(/\r/g, '')
+    .replace(/^\s{0,3}#{1,6}\s?/gm, '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/^\s*[-*]\s+/gm, '')
+    .replace(/^\s*\d+[\.)]\s+/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 type SubmitJobResponse = {
   job_id?: string;
   status?: string;
@@ -45,7 +60,7 @@ export async function sendMessage(
       jobId = data.job_id;
       if (!jobId) {
         onStatusChange?.('connected');
-        return data.response ?? "I'm having trouble right now. Please try again in a moment.";
+        return cleanAssistantText(data.response ?? "I'm having trouble right now. Please try again in a moment.");
       }
       break;
     } catch (error) {
@@ -80,7 +95,7 @@ export async function sendMessage(
       }
 
       onStatusChange?.('connected');
-      return data.response ?? "I'm having trouble right now. Please try again in a moment.";
+      return cleanAssistantText(data.response ?? "I'm having trouble right now. Please try again in a moment.");
     } catch (error) {
       lastError = error;
       onStatusChange?.('reconnecting');
