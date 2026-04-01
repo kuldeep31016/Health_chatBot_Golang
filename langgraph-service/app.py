@@ -1,6 +1,8 @@
 import os
 import json
 import time
+import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, List, TypedDict, Optional
 from urllib import parse, request, error
@@ -29,6 +31,10 @@ SYSTEM_PROMPT = (
     "Always answer using this context when relevant.\n"
     "Never say you don't have access to user data.\n"
     "Do not hallucinate. If context is missing, say clearly.\n"
+    "Use plain simple text only.\n"
+    "Do NOT use markdown symbols like *, **, #, -, or backticks.\n"
+    "Do NOT use bullet points.\n"
+    "Keep output clean, readable, and professional.\n"
 )
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -40,6 +46,24 @@ _PROFILE_CACHE: Dict[str, Any] = {
     "data": None,
 }
 _WEB_CACHE: Dict[str, Dict[str, Any]] = {}
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+logger = logging.getLogger("langgraph-health-agent")
+
+
+def _clean_response_text(text: str) -> str:
+    if not text:
+        return ""
+
+    cleaned = text.replace("\r", "")
+    cleaned = re.sub(r"^\s{0,3}#{1,6}\s?", "", cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r"\*\*(.*?)\*\*", r"\1", cleaned)
+    cleaned = re.sub(r"__(.*?)__", r"\1", cleaned)
+    cleaned = re.sub(r"`([^`]*)`", r"\1", cleaned)
+    cleaned = re.sub(r"^\s*[-*]\s+", "", cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r"^\s*\d+[\.)]\s+", "", cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
 
 
 def _load_root_env() -> None:
@@ -176,10 +200,12 @@ def _select_health_sections(profile: Dict[str, Any], query: str) -> Dict[str, An
 def _web_search(query: str) -> Dict[str, Any]:
     cache_key = query.strip().lower()
     if cache_key in _WEB_CACHE:
+        logger.info("Serper API working fine (cache hit) | query='%s'", query[:80])
         return _WEB_CACHE[cache_key]
 
     api_key = os.getenv("SERPER_API_KEY", "").strip()
     if not api_key:
+        logger.warning("Serper API key missing (SERPER_API_KEY not set)")
         return {"error": "SERPER_API_KEY is missing"}
 
     endpoint = f"https://google.serper.dev/search?q={parse.quote(query)}"
@@ -213,6 +239,11 @@ def _web_search(query: str) -> Dict[str, Any]:
                     "top_results": top_results,
                 }
                 _WEB_CACHE[cache_key] = result
+                logger.info(
+                    "Serper API working fine | query='%s' | results=%d",
+                    query[:80],
+                    len(top_results),
+                )
                 return result
         except (error.URLError, TimeoutError, json.JSONDecodeError, RuntimeError) as exc:
             last_error = exc
@@ -220,6 +251,7 @@ def _web_search(query: str) -> Dict[str, Any]:
 
     result = {"error": f"web search failed: {last_error}"}
     _WEB_CACHE[cache_key] = result
+    logger.error("Serper API failed after retries | query='%s' | error=%s", query[:80], last_error)
     return result
 
 
@@ -333,7 +365,8 @@ def build_graph() -> Any:
         try:
             llm = _create_llm()
             msg = llm.invoke(prompt)
-            state["response"] = msg.content if hasattr(msg, "content") else str(msg)
+            raw = msg.content if hasattr(msg, "content") else str(msg)
+            state["response"] = _clean_response_text(raw)
             state["status"] = "success"
         except Exception as exc:
             state["error"] = str(exc)
@@ -342,23 +375,25 @@ def build_graph() -> Any:
 
     def fail_node(state: GraphState) -> GraphState:
         detail = state.get("error", "unknown error")
-        state["response"] = (
+        state["response"] = _clean_response_text(
+            (
             "I'm having trouble right now. Please try again in a moment. "
             f"(LangGraph detail: {detail})"
+            )
         )
         state["status"] = "fail"
         return state
 
     graph = StateGraph(GraphState)
     graph.add_node("process", process_node)
-    graph.add_node("tasks", tasks_node)
+    graph.add_node("plan_tasks", tasks_node)
     graph.add_node("action", action_node)
     graph.add_node("success", success_node)
     graph.add_node("fail", fail_node)
 
     graph.set_entry_point("process")
-    graph.add_edge("process", "tasks")
-    graph.add_edge("tasks", "action")
+    graph.add_edge("process", "plan_tasks")
+    graph.add_edge("plan_tasks", "action")
     graph.add_conditional_edges("action", route_after_action, {"action": "action", "success": "success", "fail": "fail"})
     graph.add_edge("success", END)
     graph.add_edge("fail", END)
