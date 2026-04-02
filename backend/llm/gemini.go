@@ -19,7 +19,7 @@ type GeminiClient struct {
 
 func NewGeminiClient(apiKey, model string) *GeminiClient {
 	if model == "" {
-		model = "gemini-2.5-flash"
+		model = "gemini-2.0-flash"
 	}
 	return &GeminiClient{
 		APIKey:     apiKey,
@@ -50,7 +50,7 @@ func (c *GeminiClient) GenerateResponse(profile, healthData, memoryContext map[s
 		body := map[string]interface{}{
 			"contents": []map[string]interface{}{
 				{
-					"role": "user",
+					"role":  "user",
 					"parts": []map[string]string{{"text": fullPrompt}},
 				},
 			},
