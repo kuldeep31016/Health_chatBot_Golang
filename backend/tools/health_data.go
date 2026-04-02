@@ -26,7 +26,7 @@ func GetHealthData(query string) map[string]interface{} {
 		}
 	}
 
-	if containsAny("glucose", "weak", "dizzy") {
+	if containsAny("glucose", "weak", "dizzy", "tired", "fatigue", "hemoglobin", "haemoglobin", "hb", "biomarker", "vitamin") {
 		if v, ok := profile["metabolic"]; ok {
 			result["metabolic"] = v
 		}
