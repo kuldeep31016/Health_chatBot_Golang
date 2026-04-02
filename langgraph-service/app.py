@@ -3,11 +3,14 @@ import json
 import time
 import logging
 import re
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List, TypedDict, Optional
 from urllib import parse, request, error
 
 from fastapi import FastAPI
+
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"langchain_google_genai\..*")
 from langgraph.graph import END, StateGraph
 from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -40,6 +43,8 @@ SYSTEM_PROMPT = (
 ROOT_DIR = Path(__file__).resolve().parent.parent
 PROFILE_PATH = Path(os.getenv("USER_PROFILE_PATH", str(ROOT_DIR / "backend" / "data" / "user_profile.json")))
 MAX_CONTEXT_CHARS = int(os.getenv("MAX_CONTEXT_CHARS", "7000"))
+DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip() or "gemini-2.0-flash"
+FALLBACK_GEMINI_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
 
 _PROFILE_CACHE: Dict[str, Any] = {
     "mtime": None,
@@ -88,10 +93,67 @@ def _create_llm() -> ChatGoogleGenerativeAI:
         raise ValueError("GEMINI_API_KEY is missing. Set it in project .env or shell env.")
 
     return ChatGoogleGenerativeAI(
-        model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+        model=DEFAULT_GEMINI_MODEL,
         google_api_key=api_key,
         temperature=0.2,
     )
+
+
+def _create_llm_for_model(model: str) -> ChatGoogleGenerativeAI:
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY is missing. Set it in project .env or shell env.")
+
+    return ChatGoogleGenerativeAI(
+        model=model,
+        google_api_key=api_key,
+        temperature=0.2,
+    )
+
+
+def _is_quota_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(
+        marker in text
+        for marker in [
+            "resourceexhausted",
+            "quota exceeded",
+            "rate limit",
+            "too many requests",
+            "429",
+            "not found",
+            "not supported",
+            "404",
+        ]
+    )
+
+
+def _invoke_llm_with_fallback(prompt: str) -> str:
+    models = []
+    for model in [DEFAULT_GEMINI_MODEL, FALLBACK_GEMINI_MODEL, "gemini-2.0-flash", "gemini-2.5-flash"]:
+        if model and model not in models:
+            models.append(model)
+
+    last_error: Optional[Exception] = None
+    for model in models:
+        try:
+            llm = _create_llm_for_model(model)
+            msg = llm.invoke(prompt)
+            raw = msg.content if hasattr(msg, "content") else str(msg)
+            if raw:
+                if model != DEFAULT_GEMINI_MODEL:
+                    logger.warning("Gemini fallback succeeded using model=%s", model)
+                return _clean_response_text(raw)
+        except Exception as exc:
+            last_error = exc
+            if model != models[-1] and _is_quota_error(exc):
+                logger.warning("Gemini model failed on %s; retrying with fallback model", model)
+                continue
+            raise
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("LLM invocation failed")
 
 
 def _get_profile_data() -> Dict[str, Any]:
@@ -149,17 +211,7 @@ def _trim_context_for_prompt(context: Dict[str, Any], max_chars: int) -> Dict[st
 
 
 def _select_user_basics(profile: Dict[str, Any]) -> Dict[str, Any]:
-    keys = [
-        "name",
-        "age",
-        "height_cm",
-        "weight_kg",
-        "hair_color",
-        "eye_color",
-        "gender",
-        "blood_group",
-    ]
-    return {k: profile[k] for k in keys if k in profile}
+    return dict(profile)
 
 
 def _select_health_sections(profile: Dict[str, Any], query: str) -> Dict[str, Any]:
@@ -170,7 +222,7 @@ def _select_health_sections(profile: Dict[str, Any], query: str) -> Dict[str, An
         if "cardiovascular_matrix" in profile:
             out["cardiovascular_matrix"] = profile["cardiovascular_matrix"]
 
-    if any(t in q for t in ["glucose", "metabolic", "dizzy", "weak", "fatigue"]):
+    if any(t in q for t in ["glucose", "metabolic", "dizzy", "weak", "fatigue", "hemoglobin", "haemoglobin", "hb", "biomarker", "vitamin"]):
         if "metabolic" in profile:
             out["metabolic"] = profile["metabolic"]
         if "biomarkers" in profile:
@@ -282,7 +334,7 @@ def build_graph() -> Any:
         tasks: List[Dict[str, Any]] = []
 
         wants_profile = any(token in query for token in ["age", "weight", "height", "hair", "eye", "profile", "who am i"])
-        wants_health = any(token in query for token in ["exercise", "workout", "fitness", "health", "hrv", "glucose", "bp", "heart", "diet", "hydration", "appointment"])
+        wants_health = any(token in query for token in ["exercise", "workout", "fitness", "health", "hrv", "glucose", "bp", "heart", "diet", "hydration", "appointment", "hemoglobin", "haemoglobin", "hb", "biomarker", "vitamin", "dizzy", "weak", "fatigue", "tired"])
         wants_memory = any(token in query for token in ["earlier", "remember", "before", "history", "last time"])
         wants_web = any(token in query for token in ["latest", "news", "research", "web", "search", "what is", "guideline"])
 
@@ -363,10 +415,7 @@ def build_graph() -> Any:
             f"User Query: {state.get('query', '')}"
         )
         try:
-            llm = _create_llm()
-            msg = llm.invoke(prompt)
-            raw = msg.content if hasattr(msg, "content") else str(msg)
-            state["response"] = _clean_response_text(raw)
+            state["response"] = _invoke_llm_with_fallback(prompt)
             state["status"] = "success"
         except Exception as exc:
             state["error"] = str(exc)
