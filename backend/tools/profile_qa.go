@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 )
 
 func TryAnswerProfileQuestion(query string) (string, bool) {
@@ -21,6 +22,10 @@ func TryAnswerProfileQuestion(query string) (string, bool) {
 		if v, ok := getNumber(profile, "age"); ok {
 			return fmt.Sprintf("You are %.0f years old.", v), true
 		}
+	}
+
+	if isAny(q, "today's date", "todays date", "what is the date", "date today", "current date") {
+		return fmt.Sprintf("Today's date is %s.", time.Now().Format("2006-01-02")), true
 	}
 
 	if isAny(q, "weight", "weigh") {
@@ -72,6 +77,14 @@ func TryAnswerProfileQuestion(query string) (string, bool) {
 	if hasAllTerms(q, "eye", "color") || hasAllTerms(q, "eyes", "color") || hasAllTerms(q, "eye", "colour") || hasAllTerms(q, "eyes", "colour") {
 		if v, ok := getString(profile, "eye_color"); ok {
 			return fmt.Sprintf("Your eye color is %s.", v), true
+		}
+	}
+
+	if isAny(q, "hemoglobin", "haemoglobin", "hb") {
+		if biomarkers, ok := profile["biomarkers"].(map[string]interface{}); ok {
+			if v, ok := getNumber(biomarkers, "hemoglobin_g_dl"); ok {
+				return fmt.Sprintf("Your hemoglobin level is %.1f g/dL.", math.Round(v*10)/10), true
+			}
 		}
 	}
 
