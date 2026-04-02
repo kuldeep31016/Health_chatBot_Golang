@@ -233,7 +233,7 @@ func classifyQuery(query string) string {
 		return "memory"
 	}
 
-	healthTerms := []string{"health", "heart", "hrv", "bp", "glucose", "dizzy", "weak", "exercise", "workout", "run", "allergy", "appointment", "fitness"}
+	healthTerms := []string{"health", "heart", "hrv", "bp", "glucose", "dizzy", "weak", "tired", "fatigue", "exercise", "workout", "run", "allergy", "appointment", "fitness", "hemoglobin", "haemoglobin", "hb", "biomarker", "vitamin"}
 	for _, term := range healthTerms {
 		if strings.Contains(q, term) {
 			return "health"
