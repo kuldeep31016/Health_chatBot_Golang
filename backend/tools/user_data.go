@@ -47,27 +47,12 @@ func GetUserProfile() (map[string]interface{}, error) {
 		return nil, fmt.Errorf("user profile not loaded")
 	}
 
-	selected := map[string]interface{}{}
-	keys := []string{
-		"name",
-		"age",
-		"height_cm",
-		"weight_kg",
-		"hair_color",
-		"eye_color",
-		"gender",
-		"blood_group",
-		"goals",
-		"allergies",
-		"diet_preferences",
-	}
-	for _, k := range keys {
-		if v, ok := userProfile[k]; ok {
-			selected[k] = v
-		}
+	full := make(map[string]interface{}, len(userProfile))
+	for k, v := range userProfile {
+		full[k] = v
 	}
 
-	return selected, nil
+	return full, nil
 }
 
 func RawProfile() map[string]interface{} {
